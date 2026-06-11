@@ -20,7 +20,8 @@ client = AsyncOpenAI(
 SYSTEM_PROMPT = (
     "You are an elite football betting analyst with 20 years of experience. "
     "You think like a professional bettor: you look for VALUE, not just favorites. "
-    "Always respond with valid JSON only — no markdown, no explanation outside the JSON."
+    "Always respond with valid JSON only — no markdown, no explanation outside the JSON. "
+    "All Arabic text must be in Modern Standard Arabic (الفصحى)."
 )
 
 
@@ -45,7 +46,7 @@ def _build_prompt(match_info: dict, odds_data: dict | None) -> str:
         )
         odds_note = (
             "Provide estimated odds for each bet. "
-            "Only include bets where your estimated odds would be >= 1.50."
+            f"Only include bets where your estimated odds would be >= {MIN_ODDS}."
         )
 
     return f"""
@@ -61,18 +62,22 @@ INSTRUCTIONS:
 3. EXCLUDE any bet with odds below {MIN_ODDS}.
 4. Find the top {TOP_BETS_COUNT} VALUE BETS — where true probability > implied probability.
 5. Rank by confidence (highest first).
+6. Write ALL text fields in Modern Standard Arabic (الفصحى) EXCEPT market and pick names.
 
 RESPOND WITH THIS EXACT JSON:
 {{
-  "match_context": "2-3 sentences about key factors affecting this match",
+  "match_context": "سطرين بالعربية الفصحى عن أبرز عوامل المباراة",
   "bets": [
     {{
       "rank": 1,
-      "market": "market type (1X2 / Over-Under / BTTS / Double Chance / Asian Handicap / etc)",
-      "pick": "exact selection (e.g. Home Win / Over 2.5 Goals / BTTS Yes)",
+      "market": "market name in English (e.g. 1X2, Over/Under, BTTS, Double Chance, Asian Handicap)",
+      "market_ar": "اسم السوق بالعربية الفصحى",
+      "pick": "exact selection in English (e.g. Home Win, Over 2.5 Goals, BTTS Yes)",
+      "pick_ar": "الاختيار بالعربية الفصحى",
       "odds": 1.85,
       "confidence_pct": 74,
-      "value_reason": "one sentence why this is a value bet"
+      "win_condition": "تربح إذا: جملة واحدة بالعربية الفصحى توضح متى يكسب هذا الرهان",
+      "lose_condition": "تخسر إذا: جملة واحدة بالعربية الفصحى توضح متى يخسر هذا الرهان"
     }}
   ]
 }}
@@ -87,7 +92,7 @@ async def generate_tips(match_info: dict, odds_data: dict | None) -> dict | None
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": _build_prompt(match_info, odds_data)},
             ],
-            max_tokens=1200,
+            max_tokens=1500,
             temperature=0.2,
         )
 
@@ -97,10 +102,10 @@ async def generate_tips(match_info: dict, odds_data: dict | None) -> dict | None
         data = json.loads(raw)
         bets = data.get("bets", [])
 
-        # Hard filter: remove anything below MIN_ODDS
+        # حذف الرهانات أقل من MIN_ODDS
         bets = [b for b in bets if float(b.get("odds", 0)) >= MIN_ODDS]
 
-        # Sort by confidence descending
+        # ترتيب من الأعلى ثقة للأدنى
         bets.sort(key=lambda x: x.get("confidence_pct", 0), reverse=True)
 
         return {
@@ -109,7 +114,7 @@ async def generate_tips(match_info: dict, odds_data: dict | None) -> dict | None
         }
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parse error in analyzer: {e}")
+        logger.error(f"JSON parse error: {e}")
         return None
     except Exception as e:
         logger.error(f"Analyzer error: {e}")
